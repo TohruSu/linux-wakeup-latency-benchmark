@@ -1,10 +1,40 @@
 # linux-wakeup-latency-benchmark
 
+[![CI](https://github.com/TohruSu/linux-wakeup-latency-benchmark/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TohruSu/linux-wakeup-latency-benchmark/actions/workflows/ci.yml)
+
 A small toolkit for measuring **application-observed wake-up lateness** on 64-bit Linux. A C collector schedules absolute sleeps, records the resulting observations in a versioned CSV, and preserves skipped schedule periods. A Python package validates the CSV, calculates descriptive statistics, and optionally generates plots.
 
 Results describe the observations made by the application. They do not isolate hardware interrupt latency or scheduler dispatch latency, establish worst-case bounds, or provide a real-time schedulability guarantee. Nanosecond units describe the data representation, not measurement accuracy.
 
 Bundled example datasets and test fixtures are synthetic.
+
+## Quick start
+
+From the repository root on 64-bit Linux, with a C11 compiler, GNU Make, and Python 3.10 or newer:
+
+```sh
+make
+./build/wakeup-latency --interval-us 1000 --samples 1000 --output build/run.csv
+python3 -m wakeup_latency validate build/run.csv
+python3 -m wakeup_latency summarize build/run.csv --json
+```
+
+This requests 1,000 observations at a 1,000-microsecond interval, then validates and summarizes that run. Validation and statistics use only the Python standard library. An existing `build/run.csv` is protected; add `--overwrite` to the collector command only when you intend to replace it. See [requirements and installation](#requirements-build-and-installation) for compiler selection and the optional plotting dependency.
+
+## Visual example
+
+![Synthetic ECDF demonstration: four of five observations are within the inclusive 0–30 ns range, one is above it, and none are below.](docs/images/ecdf-synthetic.png)
+
+**Synthetic demonstration, not measured performance.** The [fixture](tests/fixtures/schema-v1/complete.csv) contains five invented lateness values `[0, 10, 20, 30, 100]` ns and three recorded skipped periods. The inclusive 0–30 ns zoom displays four observations, with none below and one above. The ECDF uses all five observations in its denominator, so its value at 30 ns is `4 / 5 = 0.8`.
+
+Reproduce this figure after installing the [optional plotting dependency](#requirements-build-and-installation):
+
+```sh
+python3 -m wakeup_latency plot tests/fixtures/schema-v1/complete.csv \
+    --output-dir build/plots/synthetic-zoom --bins 10 --latency-range-ns 0 30
+```
+
+The command also writes a histogram and a sample plot. Existing plot files require `--overwrite`. See [visualization behavior](docs/visualization.md) for validation, range accounting, and output limitations.
 
 ## Features and architecture
 
@@ -25,7 +55,8 @@ The collector performs measurement; the Python package reads its output afterwar
 ├── docs/
 │   ├── csv-format.md           # CSV schema v1 and measurement semantics
 │   ├── analysis.md             # Validation, classifications, statistics
-│   └── visualization.md        # Plotting and range accounting
+│   ├── visualization.md        # Plotting and range accounting
+│   └── images/                 # Synthetic visualization example
 ├── .github/workflows/ci.yml   # Linux compatibility and integration checks
 ├── Makefile
 └── requirements-plot.txt      # Optional Matplotlib dependency
@@ -37,10 +68,9 @@ The collector requires 64-bit Linux, a C11 compiler, and GNU Make. It has no Pyt
 
 Python 3.10 is the minimum supported version. The CI workflow is configured for Python 3.10, 3.11, and 3.12; this does not imply that every newer Python version or every 64-bit Linux architecture has been tested. Local platform validation covers x86-64 Linux. See [testing and CI](#testing-and-ci) for the configured checks.
 
-Run the following commands from the repository root:
+After the [quick start](#quick-start), these commands show the available interfaces:
 
 ```sh
-make
 ./build/wakeup-latency --help
 python3 -m wakeup_latency --help
 ```
@@ -101,12 +131,7 @@ An output error takes precedence over measurement or cancellation status.
 
 ## Validate, summarize, and plot
 
-```sh
-python3 -m wakeup_latency validate build/run.csv
-python3 -m wakeup_latency summarize build/run.csv --json
-```
-
-Both commands accept multiple CSV paths and report each separately. The validator requires the exact header and version, supported repeated metadata, valid integer ranges, sequential samples, consistent timestamps and latency, and correct deadline/skipped-period progression. Malformed input is rejected with filenames and physical row numbers; invalid rows are never silently removed.
+The [quick start](#quick-start) shows the `validate` and `summarize` commands. Both accept multiple CSV paths and report each separately. The validator requires the exact header and version, supported repeated metadata, valid integer ranges, sequential samples, consistent timestamps and latency, and correct deadline/skipped-period progression. Malformed input is rejected with filenames and physical row numbers; invalid rows are never silently removed.
 
 Statistics use recorded latency in nanoseconds. Sample standard deviation uses denominator `n - 1`; P95 and P99 use inclusive linear interpolation (type 7). Header-only runs have unavailable latency statistics; an empty file is invalid. For one observation, all latency statistics except sample standard deviation equal the observed value. Floating-point summaries can round. See [analysis definitions](docs/analysis.md) for the exact rules and completion limits.
 
@@ -137,11 +162,9 @@ python3 -m wakeup_latency validate tests/fixtures/schema-v1/complete.csv
 python3 -m wakeup_latency summarize tests/fixtures/schema-v1/complete.csv --json
 python3 -m wakeup_latency plot tests/fixtures/schema-v1/complete.csv \
     --output-dir build/plots/synthetic
-python3 -m wakeup_latency plot tests/fixtures/schema-v1/complete.csv \
-    --output-dir build/plots/synthetic-zoom --latency-range-ns 0 30
 ```
 
-The complete fixture contains lateness values `[0, 10, 20, 30, 100]` ns and three recorded skipped periods. Its mean is 32 ns, median 20 ns, P95 86 ns, and P99 97.2 ns. Zooming to 0–30 ns shows four observations and identifies one above the displayed range. These invented values are parser and visualization examples, not representative accuracy or performance claims. Other [fixtures](tests/fixtures/schema-v1/README.md) exercise partial runs and intentionally malformed records.
+The complete fixture contains lateness values `[0, 10, 20, 30, 100]` ns and three recorded skipped periods. Its mean is 32 ns, median 20 ns, P95 86 ns, and P99 97.2 ns. The [visual example](#visual-example) shows the corresponding 0–30 ns zoom. These invented values are parser and visualization examples, not representative accuracy or performance claims. Other [fixtures](tests/fixtures/schema-v1/README.md) exercise partial runs and intentionally malformed records.
 
 ## CSV schema v1
 
@@ -182,3 +205,7 @@ Cancellation has a small check-to-sleep race: a signal just before the sleep cal
 Observations include timer handling, scheduling, return from sleep, and execution before the timestamp. The collector inherits CPU affinity, scheduling policy, timer slack, system load, and power-management conditions without collecting machine identifiers. `CLOCK_MONOTONIC` excludes suspended time on Linux. Storage is capped at 256 MiB, and absolute timestamp arithmetic must fit signed 64-bit nanoseconds, approximately 292 years from the clock's origin.
 
 CSV schema v1 has no completed-count footer: lost trailing rows in interrupted/error output cannot always be detected. Even a full complete CSV cannot prove a successful collector close. Analysis retains observations in memory, and plots/statistical summaries use floating-point representations that can round large integers. Output protection does not prevent another process from renaming paths or writing concurrently. Keep exit status and diagnostics, inspect tails rather than only zoomed plots, and interpret each result as a descriptive sample of the conditions under which it was collected.
+
+## License and release
+
+Released under the [MIT License](LICENSE). See [v0.1.0](https://github.com/TohruSu/linux-wakeup-latency-benchmark/releases/tag/v0.1.0) for the existing release.
