@@ -1,0 +1,2 @@
+# Optional; validation and statistics do not need these packages.
+matplotlib>=3.7,<4

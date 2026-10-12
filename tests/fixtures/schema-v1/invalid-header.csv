@@ -1,0 +1,6 @@
+version,run_status,requested_samples,sample,interval_ns,deadline_ns,observed_ns,latency_ns,skipped_periods
+1,complete,5,1,1000,1000,1000,0,0
+1,complete,5,2,1000,2000,2010,10,0
+1,complete,5,3,1000,5000,5020,20,2
+1,complete,5,4,1000,6000,6030,30,0
+1,complete,5,5,1000,8000,8100,100,1
